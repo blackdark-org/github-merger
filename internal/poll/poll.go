@@ -50,7 +50,11 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 			snap.Now = now
 			decision := decide.Decide(opt.Decide, snap)
 			if !decision.Merge {
-				log.Info("skip", "repo", name, "pr", number, "reason", decision.Reason)
+				if decision.Reason == "missing-label" {
+					log.Debug("skip", "repo", name, "pr", number, "reason", decision.Reason)
+				} else {
+					log.Info("skip", "repo", name, "pr", number, "reason", decision.Reason)
+				}
 				continue
 			}
 			if err := src.Merge(ctx, repo.Owner, repo.Name, number, decision.Method, snap.HeadSHA); err != nil {

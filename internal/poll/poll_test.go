@@ -1,6 +1,8 @@
 package poll
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -89,6 +91,69 @@ func TestTick(t *testing.T) {
 	if merges[0].Path != "/repos/acme/app/pulls/1/merge" || merges[0].MergeMethod != "merge" || merges[0].SHA != "aaa" {
 		t.Fatalf("merge = %+v", merges[0])
 	}
+}
+
+func TestMissingLabelIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	mergeable := false
+	src := stubSource{
+		numbers: []int{1, 2},
+		snaps: map[int]decide.Snapshot{
+			1: {HeadOwner: "acme", HeadName: "app", BaseOwner: "acme", BaseName: "app"},
+			2: {
+				Labels:         []string{"automerge"},
+				HeadOwner:      "acme",
+				HeadName:       "app",
+				BaseOwner:      "acme",
+				BaseName:       "app",
+				Mergeable:      &mergeable,
+				MergeableState: "dirty",
+			},
+		},
+	}
+	err := Tick(t.Context(), log, src, Options{
+		Repos:  []Repo{{Owner: "acme", Name: "app"}},
+		Decide: decide.Config{Require: []string{"automerge"}},
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "level=DEBUG") || !strings.Contains(out, "reason=missing-label") {
+		t.Fatalf("log = %s", out)
+	}
+	if !strings.Contains(out, "level=INFO") || !strings.Contains(out, "reason=conflict") {
+		t.Fatalf("log = %s", out)
+	}
+	info := slog.New(slog.NewTextHandler(&buf, nil))
+	buf.Reset()
+	if err := Tick(t.Context(), info, src, Options{
+		Repos:  []Repo{{Owner: "acme", Name: "app"}},
+		Decide: decide.Config{Require: []string{"automerge"}},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "missing-label") {
+		t.Fatalf("default log = %s", buf.String())
+	}
+}
+
+type stubSource struct {
+	numbers []int
+	snaps   map[int]decide.Snapshot
+}
+
+func (s stubSource) OpenPRNumbers(context.Context, string, string) ([]int, error) {
+	return s.numbers, nil
+}
+
+func (s stubSource) Snapshot(_ context.Context, _, _ string, number int) (decide.Snapshot, error) {
+	return s.snaps[number], nil
+}
+
+func (s stubSource) Merge(context.Context, string, string, int, decide.Method, string) error {
+	return nil
 }
 
 type mergeCall struct {
