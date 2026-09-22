@@ -20,3 +20,8 @@ checksum:
 
 changelog:
   use: github-native
+
+release:
+  # A tag push can start this workflow twice. The second upload gets HTTP 422
+  # because the asset name already exists. Delete that asset and upload again.
+  replace_existing_artifacts: true
