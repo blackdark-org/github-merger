@@ -43,6 +43,13 @@ func TestInstallationToken(t *testing.T) {
 			if age < 50*time.Second || age > 70*time.Second {
 				t.Errorf("iat age %s, want about 60s", age)
 			}
+			if claims.ExpiresAt == nil {
+				t.Fatal("missing exp")
+			}
+			until := time.Until(claims.ExpiresAt.Time)
+			if until <= 0 || until > 10*time.Minute {
+				t.Errorf("exp in %s, want under 10m", until)
+			}
 			writeJSON(w, map[string]string{
 				"token":      "install-token",
 				"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),

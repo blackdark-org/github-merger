@@ -105,7 +105,10 @@ func TestDecide(t *testing.T) {
 		{
 			name: "newest suite inside settle",
 			mutate: func(_ *Config, snap *Snapshot) {
-				snap.Suites[0].CreatedAt = now.Add(-30 * time.Second)
+				snap.Suites = []CheckSuite{
+					{Status: "completed", CreatedAt: now.Add(-2 * time.Minute)},
+					{Status: "completed", CreatedAt: now.Add(-30 * time.Second)},
+				}
 			},
 			reason: "settling",
 		},
@@ -128,6 +131,13 @@ func TestDecide(t *testing.T) {
 			name: "failed conclusion",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Runs[0].Conclusion = "failure"
+			},
+			reason: "checks-failed",
+		},
+		{
+			name: "cancelled conclusion",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Runs[0].Conclusion = "cancelled"
 			},
 			reason: "checks-failed",
 		},

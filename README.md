@@ -2,7 +2,7 @@
 
 Polls GitHub for open pull requests and merges the ones that are ready. It uses a GitHub App installation token and the pull request merge API.
 
-A pull request merges only when it has every required label, none of the blocked labels, is not a draft, and its head branch is in the same repository. `mergeable` must be true. Every check suite on the head SHA must be completed, the newest suite must be at least `settle` old, and the latest run of each check name must be `success` or `skipped`. A `squash` label selects a squash merge. Otherwise the merge method is `default_merge_method` (`merge` by default).
+A pull request merges only when it has every required label, none of the blocked labels, is not a draft, and its head branch is in the same repository. `mergeable` must be true. Every check suite on the head SHA must be completed, the newest suite must be at least `settle` old, and the highest-id run of each check name must be `success` or `skipped`. A `squash` label selects a squash merge. Otherwise the merge method is `default_merge_method` (`merge` by default).
 
 ## GitHub App
 
