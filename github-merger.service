@@ -1,0 +1,18 @@
+[Unit]
+Description=GitHub pull request merger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/github-merger
+Environment=GITHUB_APP_ID=123456
+Environment=GITHUB_APP_INSTALLATION_ID=12345678
+Environment=GITHUB_APP_PRIVATE_KEY=/etc/github-merger/app.pem
+Environment=GITHUB_MERGER_CONFIG=/etc/github-merger/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
