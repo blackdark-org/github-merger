@@ -1,0 +1,22 @@
+version: 2
+
+builds:
+  - main: ./cmd/github-merger
+    binary: github-merger
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+
+sboms:
+  - artifacts: archive
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github-native

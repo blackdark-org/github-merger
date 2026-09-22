@@ -1,0 +1,8 @@
+.git
+.github
+*.md
+coverage.out
+github-merger
+dist
+*.pem
+.env

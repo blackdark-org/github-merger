@@ -14,8 +14,11 @@ import (
 	"github.com/BlackDark/github-merger/internal/poll"
 )
 
+var version = "dev"
+
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log.Info("start", "version", version)
 	if err := run(log); err != nil {
 		log.Error("exit", "err", err)
 		os.Exit(1)

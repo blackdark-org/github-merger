@@ -38,3 +38,11 @@ mise exec -- go run ./cmd/github-merger
 ```
 
 `github-merger.service` is a systemd unit for the same process. Install the binary at `/usr/local/bin/github-merger` and point the unit at the config and PEM.
+
+## Docker
+
+The image is `ghcr.io/blackdark-org/github-merger`. One build compiles linux/amd64 and linux/arm64. Each image copies only its own binary and runs as UID 65532.
+
+Mount the config and the app PEM, then set the env vars from Configuration. The container exits if `GITHUB_MERGER_CONFIG` is unset.
+
+Tag `v*` publishes that image for the release version and `major.minor`, plus archives and checksums on the GitHub release.
