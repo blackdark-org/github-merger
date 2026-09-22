@@ -116,7 +116,11 @@ func TestCheckRunPagination(t *testing.T) {
 				"mergeable_state": "clean",
 			})
 		case "/repos/acme/app/commits/abc/check-suites":
-			writeJSON(w, map[string]any{"check_suites": []any{}})
+			writeJSON(w, map[string]any{
+				"check_suites": []map[string]any{{
+					"id": 42, "status": "completed", "created_at": "2026-09-22T12:00:00Z",
+				}},
+			})
 		case "/repos/acme/app/commits/abc/check-runs":
 			if r.URL.Query().Get("filter") != "all" || r.URL.Query().Get("per_page") != "100" {
 				t.Errorf("check run query %s", r.URL.RawQuery)
@@ -133,6 +137,7 @@ func TestCheckRunPagination(t *testing.T) {
 			writeJSON(w, map[string]any{
 				"check_runs": []map[string]any{{
 					"id": 1, "name": "lint", "status": "completed", "conclusion": "success",
+					"check_suite": map[string]any{"id": 42},
 				}},
 			})
 		case "/repos/acme/app/commits/abc/status":
@@ -153,6 +158,9 @@ func TestCheckRunPagination(t *testing.T) {
 	}
 	if snap.Runs[1].Conclusion != "" {
 		t.Fatalf("null conclusion decoded as %q", snap.Runs[1].Conclusion)
+	}
+	if len(snap.Suites) != 1 || snap.Suites[0].ID != 42 || snap.Runs[0].SuiteID != 42 {
+		t.Fatalf("suite link = suites %+v runs %+v", snap.Suites, snap.Runs)
 	}
 }
 

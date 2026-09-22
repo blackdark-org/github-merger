@@ -186,6 +186,7 @@ func (c *Client) checkSuites(ctx context.Context, owner, repo, sha string) ([]de
 	for next != "" {
 		var page struct {
 			CheckSuites []struct {
+				ID        int64     `json:"id"`
 				Status    string    `json:"status"`
 				CreatedAt time.Time `json:"created_at"`
 			} `json:"check_suites"`
@@ -196,7 +197,7 @@ func (c *Client) checkSuites(ctx context.Context, owner, repo, sha string) ([]de
 			return nil, err
 		}
 		for _, suite := range page.CheckSuites {
-			suites = append(suites, decide.CheckSuite{Status: suite.Status, CreatedAt: suite.CreatedAt})
+			suites = append(suites, decide.CheckSuite{ID: suite.ID, Status: suite.Status, CreatedAt: suite.CreatedAt})
 		}
 	}
 	return suites, nil
@@ -282,10 +283,13 @@ type runPayload struct {
 	Status      string     `json:"status"`
 	Conclusion  *string    `json:"conclusion"`
 	CompletedAt *time.Time `json:"completed_at"`
+	CheckSuite  struct {
+		ID int64 `json:"id"`
+	} `json:"check_suite"`
 }
 
 func (r runPayload) toRun() decide.CheckRun {
-	run := decide.CheckRun{ID: r.ID, Name: r.Name, Status: r.Status}
+	run := decide.CheckRun{ID: r.ID, SuiteID: r.CheckSuite.ID, Name: r.Name, Status: r.Status}
 	if r.Conclusion != nil {
 		run.Conclusion = *r.Conclusion
 	}

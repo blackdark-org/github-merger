@@ -19,6 +19,7 @@ type Config struct {
 
 type CheckRun struct {
 	ID          int64
+	SuiteID     int64
 	Name        string
 	Status      string
 	Conclusion  string
@@ -26,6 +27,7 @@ type CheckRun struct {
 }
 
 type CheckSuite struct {
+	ID        int64
 	Status    string
 	CreatedAt time.Time
 }
@@ -71,7 +73,7 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("conflict")
 	case len(snap.Suites) == 0:
 		return skip("no-suites")
-	case !suitesCompleted(snap.Suites):
+	case !suitesCompleted(snap.Suites, snap.Runs):
 		return skip("suites-pending")
 	case !settled(cfg.Settle, snap.Now, snap.Suites):
 		return skip("settling")
@@ -107,13 +109,28 @@ func skip(reason string) Decision {
 	return Decision{Reason: reason}
 }
 
-func suitesCompleted(suites []CheckSuite) bool {
+func suitesCompleted(suites []CheckSuite, runs []CheckRun) bool {
 	for _, suite := range suites {
-		if suite.Status != "completed" {
-			return false
+		if suite.Status == "completed" {
+			continue
 		}
+		// GitHub opens a suite for every installed app. An app that never
+		// creates a run leaves it queued. The checks UI does not show it.
+		if suite.Status == "queued" && !suiteHasRuns(suite.ID, runs) {
+			continue
+		}
+		return false
 	}
 	return true
+}
+
+func suiteHasRuns(id int64, runs []CheckRun) bool {
+	for _, run := range runs {
+		if run.SuiteID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {

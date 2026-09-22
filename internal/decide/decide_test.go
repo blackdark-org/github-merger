@@ -103,6 +103,46 @@ func TestDecide(t *testing.T) {
 			reason: "suites-pending",
 		},
 		{
+			name: "queued suites without runs are ignored",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites = append(snap.Suites,
+					CheckSuite{ID: 9, Status: "queued", CreatedAt: now.Add(-2 * time.Minute)},
+					CheckSuite{ID: 10, Status: "queued", CreatedAt: now.Add(-2 * time.Minute)},
+				)
+			},
+			merge:  true,
+			method: MethodMerge,
+			reason: "ready",
+		},
+		{
+			name: "in progress suite without runs blocks",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "in_progress", CreatedAt: now.Add(-2 * time.Minute),
+				})
+			},
+			reason: "suites-pending",
+		},
+		{
+			name: "only empty queued suites",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites = []CheckSuite{
+					{ID: 9, Status: "queued", CreatedAt: now.Add(-2 * time.Minute)},
+				}
+				snap.Runs = nil
+			},
+			reason: "no-checks",
+		},
+		{
+			name: "newest empty suite still settles",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "queued", CreatedAt: now.Add(-30 * time.Second),
+				})
+			},
+			reason: "settling",
+		},
+		{
 			name: "newest suite inside settle",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Suites = []CheckSuite{
@@ -221,11 +261,13 @@ func readySnapshot(now time.Time) Snapshot {
 		Mergeable:      &mergeable,
 		MergeableState: "clean",
 		Suites: []CheckSuite{{
+			ID:        1,
 			Status:    "completed",
 			CreatedAt: now.Add(-2 * time.Minute),
 		}},
 		Runs: []CheckRun{{
 			ID:          2,
+			SuiteID:     1,
 			Name:        "lint",
 			Status:      "completed",
 			Conclusion:  "success",
