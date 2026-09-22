@@ -1,0 +1,10 @@
+interval: 60s
+settle: 60s
+repos:
+  - owner/name
+default_merge_method: merge
+labels:
+  require:
+    - automerge
+  block: []
+  squash: squash
