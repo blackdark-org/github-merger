@@ -44,7 +44,7 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 			}
 			number := pr.Number
 			if reason := decide.Candidate(opt.Decide, pr); reason != "" {
-				logSkip(log, name, number, reason)
+				logSkip(ctx, log, name, number, reason)
 				continue
 			}
 			snap, err := src.Snapshot(ctx, repo.Owner, repo.Name, number)
@@ -55,7 +55,7 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 			snap.Now = now
 			decision := decide.Decide(opt.Decide, snap)
 			if !decision.Merge {
-				logSkip(log, name, number, decision.Reason)
+				logSkip(ctx, log, name, number, decision.Reason)
 				continue
 			}
 			if err := src.Merge(ctx, repo.Owner, repo.Name, number, decision.Method, snap.HeadSHA); err != nil {
@@ -68,10 +68,10 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 	return nil
 }
 
-func logSkip(log *slog.Logger, repo string, number int, reason string) {
+func logSkip(ctx context.Context, log *slog.Logger, repo string, number int, reason string) {
 	level := slog.LevelInfo
 	if reason == "missing-label" {
 		level = slog.LevelDebug
 	}
-	log.Log(context.Background(), level, "skip", "repo", repo, "pr", number, "reason", reason)
+	log.Log(ctx, level, "skip", "repo", repo, "pr", number, "reason", reason)
 }
