@@ -175,7 +175,7 @@ func (c *Client) Merge(ctx context.Context, owner, repo string, number int, meth
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.do(ctx, req, false)
+	resp, err := c.do(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -359,7 +359,7 @@ func (c *Client) getOnce(ctx context.Context, rawURL string, dest any) (string, 
 	if err != nil {
 		return "", false, err
 	}
-	resp, err := c.do(ctx, req, false)
+	resp, err := c.do(ctx, req)
 	if err != nil {
 		var api *APIError
 		if errors.As(err, &api) {
@@ -387,22 +387,12 @@ func retryStatus(status int) bool {
 	return status == http.StatusTooManyRequests || status >= 500
 }
 
-func (c *Client) do(ctx context.Context, req *http.Request, appJWT bool) (*http.Response, error) {
-	var auth string
-	if appJWT {
-		signed, err := c.signJWT(time.Now())
-		if err != nil {
-			return nil, err
-		}
-		auth = "Bearer " + signed
-	} else {
-		tok, err := c.installationToken(ctx)
-		if err != nil {
-			return nil, err
-		}
-		auth = "Bearer " + tok
+func (c *Client) do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	tok, err := c.installationToken(ctx)
+	if err != nil {
+		return nil, err
 	}
-	req.Header.Set("Authorization", auth)
+	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("User-Agent", "github-merger")

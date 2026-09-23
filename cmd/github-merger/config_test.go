@@ -34,6 +34,22 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEmptyRequireDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := []byte("repos:\n  - acme/app\nlabels:\n  require: []\n")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt, _, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opt.Decide.Require) != 1 || opt.Decide.Require[0] != "automerge" {
+		t.Fatalf("require = %v, want [automerge]", opt.Decide.Require)
+	}
+}
+
 func TestLoadConfigNoChecksAfter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
