@@ -63,7 +63,7 @@ func loadConfig(path string) (poll.Options, time.Duration, error) {
 		return poll.Options{}, 0, fmt.Errorf("default_merge_method must be merge or squash")
 	}
 	require := file.Labels.Require
-	if require == nil {
+	if len(require) == 0 {
 		require = []string{"automerge"}
 	}
 	squash := file.Labels.Squash
