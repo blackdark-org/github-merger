@@ -20,8 +20,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if interval != time.Minute || opt.Decide.Settle != time.Minute {
-		t.Fatalf("interval %s settle %s", interval, opt.Decide.Settle)
+	if interval != time.Minute || opt.Decide.Settle != time.Minute || opt.Decide.NoChecksAfter != 0 {
+		t.Fatalf("interval %s settle %s no-checks %s", interval, opt.Decide.Settle, opt.Decide.NoChecksAfter)
 	}
 	if opt.Decide.DefaultMergeMethod != decide.MethodMerge || opt.Decide.SquashLabel != "squash" {
 		t.Fatalf("method config = %+v", opt.Decide)
@@ -31,6 +31,28 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if opt.Repos[0].Owner != "acme" || opt.Repos[0].Name != "app" {
 		t.Fatalf("repo = %+v", opt.Repos[0])
+	}
+}
+
+func TestLoadConfigNoChecksAfter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := []byte("merge_without_checks_after: 10m\nrepos:\n  - acme/app\n")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt, _, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.Decide.NoChecksAfter != 10*time.Minute {
+		t.Fatalf("no-checks = %s", opt.Decide.NoChecksAfter)
+	}
+	if err := os.WriteFile(path, []byte("merge_without_checks_after: -1m\nrepos:\n  - acme/app\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadConfig(path); err == nil {
+		t.Fatal("expected negative duration error")
 	}
 }
 

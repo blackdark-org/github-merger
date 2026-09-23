@@ -19,7 +19,7 @@ type Options struct {
 }
 
 type Source interface {
-	OpenPRNumbers(ctx context.Context, owner, repo string) ([]int, error)
+	OpenPRs(ctx context.Context, owner, repo string) ([]decide.PullRequest, error)
 	Snapshot(ctx context.Context, owner, repo string, number int) (decide.Snapshot, error)
 	Merge(ctx context.Context, owner, repo string, number int, method decide.Method, sha string) error
 }
@@ -33,14 +33,19 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 			return err
 		}
 		name := repo.Owner + "/" + repo.Name
-		numbers, err := src.OpenPRNumbers(ctx, repo.Owner, repo.Name)
+		prs, err := src.OpenPRs(ctx, repo.Owner, repo.Name)
 		if err != nil {
 			log.Error("list pull requests", "repo", name, "err", err)
 			continue
 		}
-		for _, number := range numbers {
+		for _, pr := range prs {
 			if err := ctx.Err(); err != nil {
 				return err
+			}
+			number := pr.Number
+			if reason := decide.Candidate(opt.Decide, pr); reason != "" {
+				logSkip(log, name, number, reason)
+				continue
 			}
 			snap, err := src.Snapshot(ctx, repo.Owner, repo.Name, number)
 			if err != nil {
@@ -50,19 +55,23 @@ func Tick(ctx context.Context, log *slog.Logger, src Source, opt Options, now ti
 			snap.Now = now
 			decision := decide.Decide(opt.Decide, snap)
 			if !decision.Merge {
-				if decision.Reason == "missing-label" {
-					log.Debug("skip", "repo", name, "pr", number, "reason", decision.Reason)
-				} else {
-					log.Info("skip", "repo", name, "pr", number, "reason", decision.Reason)
-				}
+				logSkip(log, name, number, decision.Reason)
 				continue
 			}
 			if err := src.Merge(ctx, repo.Owner, repo.Name, number, decision.Method, snap.HeadSHA); err != nil {
 				log.Error("merge", "repo", name, "pr", number, "method", decision.Method, "err", err)
 				continue
 			}
-			log.Info("merge", "repo", name, "pr", number, "method", decision.Method)
+			log.Info("merge", "repo", name, "pr", number, "method", decision.Method, "reason", decision.Reason)
 		}
 	}
 	return nil
+}
+
+func logSkip(log *slog.Logger, repo string, number int, reason string) {
+	level := slog.LevelInfo
+	if reason == "missing-label" {
+		level = slog.LevelDebug
+	}
+	log.Log(context.Background(), level, "skip", "repo", repo, "pr", number, "reason", reason)
 }

@@ -160,6 +160,46 @@ func TestDecide(t *testing.T) {
 			reason: "no-checks",
 		},
 		{
+			name: "no checks before no-checks delay",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-5 * time.Minute)}}
+				snap.Runs = nil
+			},
+			reason: "no-checks",
+		},
+		{
+			name: "no checks after no-checks delay",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-11 * time.Minute)}}
+				snap.Runs = nil
+			},
+			merge:  true,
+			method: MethodMerge,
+			reason: "ready-no-checks",
+		},
+		{
+			name: "no-checks delay keeps in progress suite blocking",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.Suites = []CheckSuite{{ID: 9, Status: "in_progress", CreatedAt: now.Add(-time.Hour)}}
+				snap.Runs = nil
+			},
+			reason: "suites-pending",
+		},
+		{
+			name: "no-checks delay keeps combined status",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-time.Hour)}}
+				snap.Runs = nil
+				snap.StatusTotal = 1
+				snap.StatusState = "pending"
+			},
+			reason: "status",
+		},
+		{
 			name: "check not completed",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Runs[0].Status = "in_progress"
@@ -234,6 +274,27 @@ func TestDecide(t *testing.T) {
 			got := Decide(cfg, snap)
 			if got.Merge != tt.merge || got.Method != tt.method || got.Reason != tt.reason {
 				t.Fatalf("Decide() = %+v, want merge=%v method=%q reason=%q", got, tt.merge, tt.method, tt.reason)
+			}
+		})
+	}
+}
+
+func TestCandidate(t *testing.T) {
+	cfg := readyConfig()
+	tests := []struct {
+		name string
+		pr   PullRequest
+		want string
+	}{
+		{name: "labeled", pr: PullRequest{Labels: []string{"automerge"}}, want: ""},
+		{name: "unlabeled draft", pr: PullRequest{Draft: true}, want: "missing-label"},
+		{name: "blocked", pr: PullRequest{Labels: []string{"automerge", "wip"}}, want: "blocked-label"},
+		{name: "draft", pr: PullRequest{Draft: true, Labels: []string{"automerge"}}, want: "draft"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Candidate(cfg, tt.pr); got != tt.want {
+				t.Fatalf("Candidate() = %q, want %q", got, tt.want)
 			}
 		})
 	}

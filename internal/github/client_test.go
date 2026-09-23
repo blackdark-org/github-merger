@@ -261,12 +261,122 @@ func TestMergeErrors(t *testing.T) {
 	}
 }
 
+func TestOpenPRs(t *testing.T) {
+	_, pemBytes := testKey(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/access_tokens") {
+			writeToken(w)
+			return
+		}
+		if r.URL.Path != "/repos/acme/app/pulls" || r.URL.Query().Get("state") != "open" {
+			t.Errorf("unexpected %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		writeJSON(w, []map[string]any{
+			{"number": 1, "draft": false, "labels": []map[string]string{{"name": "automerge"}}},
+			{"number": 2, "draft": true, "labels": []map[string]string{}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newClient(t, srv.URL, pemBytes)
+	prs, err := c.OpenPRs(t.Context(), "acme", "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prs) != 2 || prs[0].Number != 1 || prs[0].Draft || len(prs[0].Labels) != 1 || prs[0].Labels[0] != "automerge" {
+		t.Fatalf("prs = %+v", prs)
+	}
+	if prs[1].Number != 2 || !prs[1].Draft || len(prs[1].Labels) != 0 {
+		t.Fatalf("prs[1] = %+v", prs[1])
+	}
+}
+
+func TestGetRetries(t *testing.T) {
+	_, pemBytes := testKey(t)
+	hits := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/access_tokens") {
+			writeToken(w)
+			return
+		}
+		hits[r.URL.Path]++
+		w.Header().Set("X-GitHub-Request-Id", "ABCD:1234")
+		switch r.URL.Path {
+		case "/repos/acme/app/pulls/1":
+			if hits[r.URL.Path] < 3 {
+				http.Error(w, "Unexpected error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"draft": true, "head": map[string]any{"sha": ""}})
+		case "/repos/acme/app/pulls/2":
+			http.Error(w, "Unexpected error", http.StatusBadGateway)
+		case "/repos/acme/app/pulls/3":
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		case "/repos/acme/app/pulls/4":
+			if hits[r.URL.Path] < 2 {
+				http.Error(w, "slow down", http.StatusTooManyRequests)
+				return
+			}
+			writeJSON(w, map[string]any{"head": map[string]any{"sha": ""}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newClient(t, srv.URL, pemBytes)
+
+	snap, err := c.Snapshot(t.Context(), "acme", "app", 1)
+	if err != nil || !snap.Draft || hits["/repos/acme/app/pulls/1"] != 3 {
+		t.Fatalf("recovered: snap %+v err %v hits %d", snap, err, hits["/repos/acme/app/pulls/1"])
+	}
+
+	_, err = c.Snapshot(t.Context(), "acme", "app", 2)
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusBadGateway || hits["/repos/acme/app/pulls/2"] != 3 {
+		t.Fatalf("exhausted: err %v hits %d", err, hits["/repos/acme/app/pulls/2"])
+	}
+	want := "GET /repos/acme/app/pulls/2: github api status 502: Unexpected error (request ABCD:1234)"
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+
+	_, err = c.Snapshot(t.Context(), "acme", "app", 3)
+	if !errors.As(err, &api) || api.Status != http.StatusNotFound || hits["/repos/acme/app/pulls/3"] != 1 {
+		t.Fatalf("404: err %v hits %d", err, hits["/repos/acme/app/pulls/3"])
+	}
+
+	if _, err := c.Snapshot(t.Context(), "acme", "app", 4); err != nil || hits["/repos/acme/app/pulls/4"] != 2 {
+		t.Fatalf("429: err %v hits %d", err, hits["/repos/acme/app/pulls/4"])
+	}
+}
+
+func TestMergeDoesNotRetry(t *testing.T) {
+	_, pemBytes := testKey(t)
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/access_tokens") {
+			writeToken(w)
+			return
+		}
+		hits++
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newClient(t, srv.URL, pemBytes)
+	if err := c.Merge(t.Context(), "acme", "app", 1, decide.MethodMerge, "abc"); err == nil || hits != 1 {
+		t.Fatalf("merge err %v hits %d", err, hits)
+	}
+}
+
 func newClient(t *testing.T, base string, pemBytes []byte) *Client {
 	t.Helper()
 	c, err := New(base, "99", "7", pemBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.retryWait = []time.Duration{time.Millisecond, time.Millisecond}
 	return c
 }
 

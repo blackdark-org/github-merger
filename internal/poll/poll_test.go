@@ -31,7 +31,13 @@ func TestTick(t *testing.T) {
 		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/pulls":
-			writeJSON(w, []map[string]int{{"number": 1}, {"number": 2}, {"number": 3}})
+			labeled := []map[string]string{{"name": "automerge"}}
+			writeJSON(w, []map[string]any{
+				{"number": 1, "labels": labeled},
+				{"number": 2, "labels": labeled},
+				{"number": 3, "labels": labeled},
+				{"number": 4},
+			})
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/pulls/1":
 			writeJSON(w, pullJSON("aaa", true, "clean"))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/pulls/2":
@@ -97,10 +103,12 @@ func TestMissingLabelIsDebug(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	mergeable := false
-	src := stubSource{
-		numbers: []int{1, 2},
+	src := &stubSource{
+		prs: []decide.PullRequest{
+			{Number: 1},
+			{Number: 2, Labels: []string{"automerge"}},
+		},
 		snaps: map[int]decide.Snapshot{
-			1: {HeadOwner: "acme", HeadName: "app", BaseOwner: "acme", BaseName: "app"},
 			2: {
 				Labels:         []string{"automerge"},
 				HeadOwner:      "acme",
@@ -137,22 +145,29 @@ func TestMissingLabelIsDebug(t *testing.T) {
 	if strings.Contains(buf.String(), "missing-label") {
 		t.Fatalf("default log = %s", buf.String())
 	}
+	for _, n := range src.loaded {
+		if n == 1 {
+			t.Fatalf("loaded unlabeled pull request: %v", src.loaded)
+		}
+	}
 }
 
 type stubSource struct {
-	numbers []int
-	snaps   map[int]decide.Snapshot
+	prs    []decide.PullRequest
+	snaps  map[int]decide.Snapshot
+	loaded []int
 }
 
-func (s stubSource) OpenPRNumbers(context.Context, string, string) ([]int, error) {
-	return s.numbers, nil
+func (s *stubSource) OpenPRs(context.Context, string, string) ([]decide.PullRequest, error) {
+	return s.prs, nil
 }
 
-func (s stubSource) Snapshot(_ context.Context, _, _ string, number int) (decide.Snapshot, error) {
+func (s *stubSource) Snapshot(_ context.Context, _, _ string, number int) (decide.Snapshot, error) {
+	s.loaded = append(s.loaded, number)
 	return s.snaps[number], nil
 }
 
-func (s stubSource) Merge(context.Context, string, string, int, decide.Method, string) error {
+func (s *stubSource) Merge(context.Context, string, string, int, decide.Method, string) error {
 	return nil
 }
 

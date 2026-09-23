@@ -11,10 +11,17 @@ const (
 
 type Config struct {
 	Settle             time.Duration
+	NoChecksAfter      time.Duration
 	DefaultMergeMethod Method
 	Require            []string
 	Block              []string
 	SquashLabel        string
+}
+
+type PullRequest struct {
+	Number int
+	Draft  bool
+	Labels []string
 }
 
 type CheckRun struct {
@@ -79,9 +86,13 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("settling")
 	}
 
+	reason := "ready"
 	kept := latestRuns(snap.Runs)
 	if len(kept) == 0 {
-		return skip("no-checks")
+		if cfg.NoChecksAfter <= 0 || !settled(cfg.NoChecksAfter, snap.Now, snap.Suites) {
+			return skip("no-checks")
+		}
+		reason = "ready-no-checks"
 	}
 	for _, run := range kept {
 		if run.Status != "completed" {
@@ -102,7 +113,20 @@ func Decide(cfg Config, snap Snapshot) Decision {
 	if cfg.SquashLabel != "" && hasLabel(snap.Labels, cfg.SquashLabel) {
 		method = MethodSquash
 	}
-	return Decision{Merge: true, Method: method, Reason: "ready"}
+	return Decision{Merge: true, Method: method, Reason: reason}
+}
+
+// Candidate filters on list fields only. Decide re-checks them on the full pull request.
+func Candidate(cfg Config, pr PullRequest) string {
+	switch {
+	case !hasAll(pr.Labels, cfg.Require):
+		return "missing-label"
+	case hasAny(pr.Labels, cfg.Block):
+		return "blocked-label"
+	case pr.Draft:
+		return "draft"
+	}
+	return ""
 }
 
 func skip(reason string) Decision {

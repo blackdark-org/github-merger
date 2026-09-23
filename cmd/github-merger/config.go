@@ -15,6 +15,7 @@ import (
 type fileConfig struct {
 	Interval           string   `yaml:"interval"`
 	Settle             string   `yaml:"settle"`
+	NoChecksAfter      string   `yaml:"merge_without_checks_after"`
 	Repos              []string `yaml:"repos"`
 	DefaultMergeMethod string   `yaml:"default_merge_method"`
 	Labels             struct {
@@ -47,6 +48,13 @@ func loadConfig(path string) (poll.Options, time.Duration, error) {
 	if settle < 0 {
 		return poll.Options{}, 0, fmt.Errorf("settle must not be negative")
 	}
+	noChecksAfter, err := parseDuration(file.NoChecksAfter, 0)
+	if err != nil {
+		return poll.Options{}, 0, fmt.Errorf("merge_without_checks_after: %w", err)
+	}
+	if noChecksAfter < 0 {
+		return poll.Options{}, 0, fmt.Errorf("merge_without_checks_after must not be negative")
+	}
 	method := decide.Method(file.DefaultMergeMethod)
 	if method == "" {
 		method = decide.MethodMerge
@@ -77,6 +85,7 @@ func loadConfig(path string) (poll.Options, time.Duration, error) {
 		Repos: repos,
 		Decide: decide.Config{
 			Settle:             settle,
+			NoChecksAfter:      noChecksAfter,
 			DefaultMergeMethod: method,
 			Require:            require,
 			Block:              file.Labels.Block,

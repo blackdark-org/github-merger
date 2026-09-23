@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,7 @@ type Client struct {
 	installationID string
 	key            *rsa.PrivateKey
 	http           *http.Client
+	retryWait      []time.Duration
 
 	mu       sync.Mutex
 	token    string
@@ -33,12 +35,32 @@ type Client struct {
 }
 
 type APIError struct {
-	Status int
-	Body   string
+	Method    string
+	Path      string
+	Status    int
+	Body      string
+	RequestID string
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("github api status %d: %s", e.Status, e.Body)
+	msg := fmt.Sprintf("%s %s: github api status %d", e.Method, e.Path, e.Status)
+	if e.Body != "" {
+		msg += ": " + e.Body
+	}
+	if e.RequestID != "" {
+		msg += " (request " + e.RequestID + ")"
+	}
+	return msg
+}
+
+func newAPIError(req *http.Request, resp *http.Response, body []byte) *APIError {
+	return &APIError{
+		Method:    req.Method,
+		Path:      req.URL.Path,
+		Status:    resp.StatusCode,
+		Body:      redact(body),
+		RequestID: resp.Header.Get("X-GitHub-Request-Id"),
+	}
 }
 
 func New(baseURL, appID, installationID string, pemBytes []byte) (*Client, error) {
@@ -59,6 +81,7 @@ func New(baseURL, appID, installationID string, pemBytes []byte) (*Client, error
 		installationID: installationID,
 		key:            key,
 		http:           &http.Client{Timeout: 30 * time.Second},
+		retryWait:      []time.Duration{time.Second, 2 * time.Second},
 	}, nil
 }
 
@@ -83,23 +106,31 @@ func (c *Client) EnsureRepos(ctx context.Context, want []string) error {
 	return nil
 }
 
-func (c *Client) OpenPRNumbers(ctx context.Context, owner, repo string) ([]int, error) {
-	var nums []int
+func (c *Client) OpenPRs(ctx context.Context, owner, repo string) ([]decide.PullRequest, error) {
+	var prs []decide.PullRequest
 	next := c.repo(owner, repo) + "/pulls?state=open&per_page=100"
 	for next != "" {
 		var page []struct {
-			Number int `json:"number"`
+			Number int  `json:"number"`
+			Draft  bool `json:"draft"`
+			Labels []struct {
+				Name string `json:"name"`
+			} `json:"labels"`
 		}
 		var err error
 		next, err = c.get(ctx, next, &page)
 		if err != nil {
 			return nil, err
 		}
-		for _, pr := range page {
-			nums = append(nums, pr.Number)
+		for _, item := range page {
+			pr := decide.PullRequest{Number: item.Number, Draft: item.Draft}
+			for _, label := range item.Labels {
+				pr.Labels = append(pr.Labels, label.Name)
+			}
+			prs = append(prs, pr)
 		}
 	}
-	return nums, nil
+	return prs, nil
 }
 
 func (c *Client) Snapshot(ctx context.Context, owner, repo string, number int) (decide.Snapshot, error) {
@@ -154,7 +185,7 @@ func (c *Client) Merge(ctx context.Context, owner, repo string, number int, meth
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &APIError{Status: resp.StatusCode, Body: redact(respBody)}
+		return newAPIError(req, resp, respBody)
 	}
 	return nil
 }
@@ -308,28 +339,52 @@ func (c *Client) commit(owner, repo, sha string) string {
 }
 
 func (c *Client) get(ctx context.Context, rawURL string, dest any) (string, error) {
+	for attempt := 0; ; attempt++ {
+		next, retry, err := c.getOnce(ctx, rawURL, dest)
+		if err == nil || !retry || attempt >= len(c.retryWait) || ctx.Err() != nil {
+			return next, err
+		}
+		timer := time.NewTimer(c.retryWait[attempt])
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", err
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *Client) getOnce(ctx context.Context, rawURL string, dest any) (string, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	resp, err := c.do(ctx, req, false)
 	if err != nil {
-		return "", err
+		var api *APIError
+		if errors.As(err, &api) {
+			return "", retryStatus(api.Status), err
+		}
+		return "", true, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return "", err
+		return "", true, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", &APIError{Status: resp.StatusCode, Body: redact(body)}
+		return "", retryStatus(resp.StatusCode), newAPIError(req, resp, body)
 	}
 	if dest != nil && len(bytes.TrimSpace(body)) > 0 {
 		if err := json.Unmarshal(body, dest); err != nil {
-			return "", fmt.Errorf("decode %s: %w", req.URL.Path, err)
+			return "", false, fmt.Errorf("decode %s: %w", req.URL.Path, err)
 		}
 	}
-	return nextLink(resp.Header), nil
+	return nextLink(resp.Header), false, nil
+}
+
+func retryStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= 500
 }
 
 func (c *Client) do(ctx context.Context, req *http.Request, appJWT bool) (*http.Response, error) {
@@ -383,7 +438,7 @@ func (c *Client) installationToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", &APIError{Status: resp.StatusCode, Body: redact(body)}
+		return "", newAPIError(req, resp, body)
 	}
 	var out struct {
 		Token     string    `json:"token"`
@@ -431,7 +486,7 @@ func redact(body []byte) string {
 	if bytes.Contains(body, []byte(`"token"`)) {
 		return "(redacted)"
 	}
-	s := string(body)
+	s := strings.TrimSpace(string(body))
 	if len(s) > 512 {
 		s = s[:512]
 	}
