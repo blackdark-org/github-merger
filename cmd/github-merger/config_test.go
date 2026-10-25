@@ -16,12 +16,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt, interval, err := loadConfig(path)
+	opt, err := loadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if interval != time.Minute || opt.Decide.Settle != time.Minute || opt.Decide.NoChecksAfter != 0 {
-		t.Fatalf("interval %s settle %s no-checks %s", interval, opt.Decide.Settle, opt.Decide.NoChecksAfter)
+	if opt.Interval != time.Minute || opt.Decide.Settle != time.Minute || opt.Decide.NoChecksAfter != 0 {
+		t.Fatalf("interval %s settle %s no-checks %s", opt.Interval, opt.Decide.Settle, opt.Decide.NoChecksAfter)
 	}
 	if opt.Decide.DefaultMergeMethod != decide.MethodMerge || opt.Decide.SquashLabel != "squash" {
 		t.Fatalf("method config = %+v", opt.Decide)
@@ -29,8 +29,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if len(opt.Decide.Require) != 1 || opt.Decide.Require[0] != "automerge" {
 		t.Fatalf("require = %v", opt.Decide.Require)
 	}
-	if opt.Repos[0].Owner != "acme" || opt.Repos[0].Name != "app" {
-		t.Fatalf("repo = %+v", opt.Repos[0])
+	if len(opt.Repos) != 1 || opt.Repos[0].Owner != "acme" || opt.Repos[0].Name != "app" {
+		t.Fatalf("repo = %+v", opt.Repos)
+	}
+	if opt.Org != "" {
+		t.Fatalf("org = %q", opt.Org)
 	}
 }
 
@@ -41,7 +44,7 @@ func TestLoadConfigEmptyRequireDefaults(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt, _, err := loadConfig(path)
+	opt, err := loadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +60,7 @@ func TestLoadConfigNoChecksAfter(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opt, _, err := loadConfig(path)
+	opt, err := loadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestLoadConfigNoChecksAfter(t *testing.T) {
 	if err := os.WriteFile(path, []byte("merge_without_checks_after: -1m\nrepos:\n  - acme/app\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := loadConfig(path); err == nil {
+	if _, err := loadConfig(path); err == nil {
 		t.Fatal("expected negative duration error")
 	}
 }
@@ -78,7 +81,47 @@ func TestLoadConfigRejectsBadRepo(t *testing.T) {
 	if err := os.WriteFile(path, []byte("repos:\n  - noslash\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := loadConfig(path); err == nil {
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadConfigOrg(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("org: acme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Org != "acme" {
+		t.Fatalf("org = %q", cfg.Org)
+	}
+	if len(cfg.Repos) != 0 {
+		t.Fatalf("repos = %+v", cfg.Repos)
+	}
+}
+
+func TestLoadConfigRejectsBadOrg(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("org: acme/team\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoadConfigRequiresReposOrOrg(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("interval: 30s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil {
 		t.Fatal("expected error")
 	}
 }

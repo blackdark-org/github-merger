@@ -85,25 +85,43 @@ func New(baseURL, appID, installationID string, pemBytes []byte) (*Client, error
 	}, nil
 }
 
-func (c *Client) EnsureRepos(ctx context.Context, want []string) error {
-	got, err := c.installationRepos(ctx)
-	if err != nil {
-		return err
-	}
-	have := make(map[string]struct{}, len(got))
-	for _, name := range got {
-		have[name] = struct{}{}
-	}
-	var missing []string
-	for _, name := range want {
-		if _, ok := have[name]; !ok {
-			missing = append(missing, name)
+// InstallationRepository is a repository the app installation can access.
+type InstallationRepository struct {
+	Owner    string
+	Name     string
+	Archived bool
+}
+
+// InstallationRepos lists every repository the app installation can access.
+// An installation belongs to one account, so the result never spans owners.
+func (c *Client) InstallationRepos(ctx context.Context) ([]InstallationRepository, error) {
+	var repos []InstallationRepository
+	next := c.base + "/installation/repositories?per_page=100"
+	for next != "" {
+		var page struct {
+			Repositories []struct {
+				FullName string `json:"full_name"`
+				Archived bool   `json:"archived"`
+			} `json:"repositories"`
+		}
+		var err error
+		next, err = c.get(ctx, next, &page)
+		if err != nil {
+			return nil, err
+		}
+		for _, repo := range page.Repositories {
+			owner, name, ok := strings.Cut(repo.FullName, "/")
+			if !ok || owner == "" || name == "" {
+				return nil, fmt.Errorf("installation repo has invalid full name %q", repo.FullName)
+			}
+			repos = append(repos, InstallationRepository{
+				Owner:    owner,
+				Name:     name,
+				Archived: repo.Archived,
+			})
 		}
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("installation missing repos: %s", strings.Join(missing, ", "))
-	}
-	return nil
+	return repos, nil
 }
 
 func (c *Client) OpenPRs(ctx context.Context, owner, repo string) ([]decide.PullRequest, error) {
@@ -188,27 +206,6 @@ func (c *Client) Merge(ctx context.Context, owner, repo string, number int, meth
 		return newAPIError(req, resp, respBody)
 	}
 	return nil
-}
-
-func (c *Client) installationRepos(ctx context.Context) ([]string, error) {
-	var names []string
-	next := c.base + "/installation/repositories?per_page=100"
-	for next != "" {
-		var page struct {
-			Repositories []struct {
-				FullName string `json:"full_name"`
-			} `json:"repositories"`
-		}
-		var err error
-		next, err = c.get(ctx, next, &page)
-		if err != nil {
-			return nil, err
-		}
-		for _, repo := range page.Repositories {
-			names = append(names, repo.FullName)
-		}
-	}
-	return names, nil
 }
 
 func (c *Client) checkSuites(ctx context.Context, owner, repo, sha string) ([]decide.CheckSuite, error) {

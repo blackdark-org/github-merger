@@ -6,7 +6,7 @@ A pull request merges only when it has every required label, none of the blocked
 
 ## GitHub App
 
-Create the app on the account that owns the repositories. Leave the webhook disabled. Install it on selected repositories, not all repositories.
+Create the app on the account that owns the repositories. Leave the webhook disabled. For a fixed `repos` list, install it on those repositories. For `org`, install it on all repositories in that account. One installation covers one account, so run one process per account.
 
 Repository permissions:
 
@@ -22,7 +22,7 @@ Put the private key outside the git checkout.
 
 ## Configuration
 
-Copy `config.example.yaml`. `repos` entries are `owner/name`.
+Copy `config.example.yaml`. `repos` entries are `owner/name`. `org` is an account name: at startup the service watches every repository the installation can access in that account, skips archived repositories, and combines the result with `repos` without duplicates. An explicitly named archived repo stays watched, so a merge into it fails each tick. Set at least one of `org` and `repos`. Discovery runs only at startup, so restart after adding a repository. Every watched repository costs one list call per interval.
 
 Open pull requests without the required labels, with a blocked label, or in draft are skipped from the list response, so they cost no further API calls. Unlabeled skips log at debug. Failed reads are retried twice (after 1s and 2s) on 5xx, 429, or network errors. A merge call is never retried.
 
@@ -80,4 +80,4 @@ services:
       - ./config.yaml:/config/config.yaml:ro
 ```
 
-`config.yaml` is `config.example.yaml` with your `owner/name` repos. The container logs `start` and then skips or merges each open pull request. It exits immediately if `GITHUB_MERGER_CONFIG` is unset.
+`config.yaml` is `config.example.yaml` with your `owner/name` repos or `org`. The container logs `start` and then skips or merges each open pull request. It exits immediately if `GITHUB_MERGER_CONFIG` is unset.
