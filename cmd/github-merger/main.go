@@ -30,7 +30,7 @@ func run(log *slog.Logger) error {
 	if cfgPath == "" {
 		return fmt.Errorf("GITHUB_MERGER_CONFIG is required")
 	}
-	opt, interval, err := loadConfig(cfgPath)
+	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -52,13 +52,16 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	want := make([]string, len(opt.Repos))
-	for i, repo := range opt.Repos {
-		want[i] = repo.Owner + "/" + repo.Name
-	}
-	if err := client.EnsureRepos(ctx, want); err != nil {
+	installed, err := client.InstallationRepos(ctx)
+	if err != nil {
 		return err
 	}
+	repos, err := resolveRepos(installed, cfg.Repos, cfg.Org)
+	if err != nil {
+		return err
+	}
+	log.Info("watch", "repos", len(repos))
+	opt := poll.Options{Repos: repos, Decide: cfg.Decide}
 
 	for {
 		if err := poll.Tick(ctx, log, client, opt, time.Now()); err != nil && !errors.Is(err, context.Canceled) {
@@ -67,7 +70,7 @@ func run(log *slog.Logger) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		timer := time.NewTimer(interval)
+		timer := time.NewTimer(cfg.Interval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

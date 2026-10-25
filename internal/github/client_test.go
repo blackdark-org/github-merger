@@ -62,7 +62,10 @@ func TestInstallationToken(t *testing.T) {
 				t.Errorf("per_page %q", r.URL.Query().Get("per_page"))
 			}
 			writeJSON(w, map[string]any{
-				"repositories": []map[string]string{{"full_name": "acme/app"}},
+				"repositories": []map[string]any{
+					{"full_name": "acme/app", "archived": false},
+					{"full_name": "acme/old", "archived": true},
+				},
 			})
 		default:
 			http.NotFound(w, r)
@@ -74,14 +77,55 @@ func TestInstallationToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.EnsureRepos(t.Context(), []string{"acme/app"}); err != nil {
+	repos, err := c.InstallationRepos(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.EnsureRepos(t.Context(), []string{"acme/missing"}); err == nil {
-		t.Fatal("expected missing repo error")
+	if len(repos) != 2 {
+		t.Fatalf("repos = %+v", repos)
+	}
+	if repos[0] != (InstallationRepository{Owner: "acme", Name: "app"}) {
+		t.Fatalf("repos[0] = %+v", repos[0])
+	}
+	if !repos[1].Archived || repos[1].Name != "old" {
+		t.Fatalf("repos[1] = %+v", repos[1])
 	}
 	if tokenHits != 1 {
 		t.Fatalf("token requests = %d, want 1", tokenHits)
+	}
+}
+
+func TestInstallationReposPaginates(t *testing.T) {
+	_, pemBytes := testKey(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/access_tokens") {
+			writeToken(w)
+			return
+		}
+		if r.URL.Path != "/installation/repositories" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("page") == "2" {
+			writeJSON(w, map[string]any{
+				"repositories": []map[string]any{{"full_name": "acme/two"}},
+			})
+			return
+		}
+		w.Header().Set("Link", `<http://`+r.Host+`/installation/repositories?per_page=100&page=2>; rel="next"`)
+		writeJSON(w, map[string]any{
+			"repositories": []map[string]any{{"full_name": "acme/one"}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newClient(t, srv.URL, pemBytes)
+	repos, err := c.InstallationRepos(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 2 || repos[0].Name != "one" || repos[1].Name != "two" {
+		t.Fatalf("repos = %+v", repos)
 	}
 }
 
