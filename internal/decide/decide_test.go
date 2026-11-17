@@ -179,6 +179,38 @@ func TestDecide(t *testing.T) {
 			reason: "ready-no-checks",
 		},
 		{
+			name: "no checks fallback waits from readiness when suite older",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.ReadyAt = now.Add(-5 * time.Minute)
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-20 * time.Minute)}}
+				snap.Runs = nil
+			},
+			reason: "no-checks",
+		},
+		{
+			name: "no checks fallback permits old suite after readiness delay",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.ReadyAt = now.Add(-11 * time.Minute)
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-20 * time.Minute)}}
+				snap.Runs = nil
+			},
+			merge:  true,
+			method: MethodMerge,
+			reason: "ready-no-checks",
+		},
+		{
+			name: "no checks fallback waits from newer suite",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.ReadyAt = now.Add(-20 * time.Minute)
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-5 * time.Minute)}}
+				snap.Runs = nil
+			},
+			reason: "no-checks",
+		},
+		{
 			name: "suite with run after ready is evidence",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)

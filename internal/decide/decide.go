@@ -92,7 +92,7 @@ func Decide(cfg Config, snap Snapshot) Decision {
 	reason := "ready"
 	kept := latestRuns(snap.Runs)
 	if len(kept) == 0 {
-		if cfg.NoChecksAfter <= 0 || !settled(cfg.NoChecksAfter, snap.Now, snap.Suites) {
+		if cfg.NoChecksAfter <= 0 || !settledAfter(cfg.NoChecksAfter, snap.Now, snap.Suites, snap.ReadyAt) {
 			return skip("no-checks")
 		}
 		reason = "ready-no-checks"
@@ -166,14 +166,9 @@ func currentSuites(readyAt time.Time, suites []CheckSuite, runs []CheckRun) bool
 	}
 	kept := latestRuns(runs)
 	if len(kept) == 0 {
-		// Preserve the opt-in no-checks delay: without any runs, use a
-		// post-ready suite as a clock, not as evidence of a successful check.
-		for _, suite := range suites {
-			if !suite.CreatedAt.Before(readyAt) && !suite.CreatedAt.IsZero() {
-				return true
-			}
-		}
-		return false
+		// No checks provide evidence. The opt-in no-checks delay handles
+		// readiness and the latest suite separately in Decide.
+		return true
 	}
 	// Every selected check must belong to a suite created after readiness.
 	// An unrelated new check must not make older draft-run checks current.
@@ -193,6 +188,10 @@ func currentSuites(readyAt time.Time, suites []CheckSuite, runs []CheckRun) bool
 }
 
 func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {
+	return settledAfter(settle, now, suites, time.Time{})
+}
+
+func settledAfter(settle time.Duration, now time.Time, suites []CheckSuite, after time.Time) bool {
 	var newest time.Time
 	for _, suite := range suites {
 		if suite.CreatedAt.After(newest) {
@@ -201,6 +200,9 @@ func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {
 	}
 	if newest.IsZero() {
 		return false
+	}
+	if after.After(newest) {
+		newest = after
 	}
 	return now.Sub(newest) >= settle
 }
