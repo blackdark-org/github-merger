@@ -1,13 +1,29 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:best-practices"],
-  postUpdateOptions: ["gomodTidy"],
+  extends: [
+    "github>blackdark/renovate-base//default.json5",
+    "github>blackdark/renovate-base//go.json5",
+  ],
+  postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
+  separateMultipleMajor: true,
+  // github-merger is the only merge driver.
   automerge: false,
   platformAutomerge: false,
   packageRules: [
     {
       matchUpdateTypes: ["minor", "patch", "pin", "digest", "pinDigest"],
       addLabels: ["automerge"],
+    },
+    {
+      description: "Majors: one PR each, merged by hand",
+      groupName: null,
+      matchUpdateTypes: ["major"],
+      addLabels: ["major"],
+    },
+    {
+      description: "Only github-merger merges PRs; override every inherited automerge preset",
+      matchUpdateTypes: ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
+      automerge: false,
     },
   ],
 }

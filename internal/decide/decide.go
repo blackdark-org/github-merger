@@ -49,6 +49,8 @@ type Snapshot struct {
 	BaseName       string
 	Mergeable      *bool
 	MergeableState string
+	ReadyAt        time.Time
+	DraftAt        time.Time // latest convert_to_draft event
 	Suites         []CheckSuite
 	Runs           []CheckRun
 	StatusTotal    int
@@ -82,6 +84,11 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("no-suites")
 	case !suitesCompleted(snap.Suites, snap.Runs):
 		return skip("suites-pending")
+	case !snap.DraftAt.IsZero() && !snap.ReadyAt.After(snap.DraftAt):
+		// Draft history without a later visible ready_for_review event: fail closed.
+		return skip("ready-unknown")
+	case !currentSuites(snap.ReadyAt, snap.Suites, snap.Runs):
+		return skip("stale-suites")
 	case !settled(cfg.Settle, snap.Now, snap.Suites):
 		return skip("settling")
 	}
@@ -89,7 +96,7 @@ func Decide(cfg Config, snap Snapshot) Decision {
 	reason := "ready"
 	kept := latestRuns(snap.Runs)
 	if len(kept) == 0 {
-		if cfg.NoChecksAfter <= 0 || !settled(cfg.NoChecksAfter, snap.Now, snap.Suites) {
+		if cfg.NoChecksAfter <= 0 || !settledAfter(cfg.NoChecksAfter, snap.Now, snap.Suites, snap.ReadyAt) {
 			return skip("no-checks")
 		}
 		reason = "ready-no-checks"
@@ -157,7 +164,38 @@ func suiteHasRuns(id int64, runs []CheckRun) bool {
 	return false
 }
 
+func currentSuites(readyAt time.Time, suites []CheckSuite, runs []CheckRun) bool {
+	if readyAt.IsZero() {
+		return true
+	}
+	kept := latestRuns(runs)
+	if len(kept) == 0 {
+		// No checks provide evidence. The opt-in no-checks delay handles
+		// readiness and the latest suite separately in Decide.
+		return true
+	}
+	// Every selected check must belong to a suite created after readiness.
+	// An unrelated new check must not make older draft-run checks current.
+	for _, run := range kept {
+		current := false
+		for _, suite := range suites {
+			if suite.ID == run.SuiteID && !suite.CreatedAt.IsZero() && !suite.CreatedAt.Before(readyAt) {
+				current = true
+				break
+			}
+		}
+		if !current {
+			return false
+		}
+	}
+	return true
+}
+
 func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {
+	return settledAfter(settle, now, suites, time.Time{})
+}
+
+func settledAfter(settle time.Duration, now time.Time, suites []CheckSuite, after time.Time) bool {
 	var newest time.Time
 	for _, suite := range suites {
 		if suite.CreatedAt.After(newest) {
@@ -166,6 +204,9 @@ func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {
 	}
 	if newest.IsZero() {
 		return false
+	}
+	if after.After(newest) {
+		newest = after
 	}
 	return now.Sub(newest) >= settle
 }

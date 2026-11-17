@@ -184,6 +184,11 @@ func TestCheckRunPagination(t *testing.T) {
 					"check_suite": map[string]any{"id": 42},
 				}},
 			})
+		case "/repos/acme/app/issues/1/events":
+			writeJSON(w, []map[string]any{
+				{"event": "convert_to_draft", "created_at": "2026-09-22T11:50:00Z"},
+				{"event": "ready_for_review", "created_at": "2026-09-22T11:58:00Z"},
+			})
 		case "/repos/acme/app/commits/abc/status":
 			writeJSON(w, map[string]any{"state": "pending", "total_count": 0})
 		default:
@@ -205,6 +210,13 @@ func TestCheckRunPagination(t *testing.T) {
 	}
 	if len(snap.Suites) != 1 || snap.Suites[0].ID != 42 || snap.Runs[0].SuiteID != 42 {
 		t.Fatalf("suite link = suites %+v runs %+v", snap.Suites, snap.Runs)
+	}
+	wantReady := time.Date(2026, 9, 22, 11, 58, 0, 0, time.UTC)
+	if !snap.ReadyAt.Equal(wantReady) {
+		t.Fatalf("ReadyAt = %s, want %s", snap.ReadyAt, wantReady)
+	}
+	if wantDraft := time.Date(2026, 9, 22, 11, 50, 0, 0, time.UTC); !snap.DraftAt.Equal(wantDraft) {
+		t.Fatalf("DraftAt = %s, want %s", snap.DraftAt, wantDraft)
 	}
 }
 

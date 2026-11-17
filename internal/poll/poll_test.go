@@ -44,6 +44,8 @@ func TestTick(t *testing.T) {
 			writeJSON(w, pullJSON("bbb", false, "dirty"))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/pulls/3":
 			writeJSON(w, pullJSON("ccc", true, "clean"))
+		case strings.HasSuffix(r.URL.Path, "/events"):
+			writeJSON(w, []any{})
 		case strings.HasSuffix(r.URL.Path, "/check-suites"):
 			status := "completed"
 			if strings.Contains(r.URL.Path, "/ccc/") {
