@@ -83,7 +83,7 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("no-suites")
 	case !suitesCompleted(snap.Suites, snap.Runs):
 		return skip("suites-pending")
-	case !currentSuites(snap.ReadyAt, snap.Suites):
+	case !currentSuites(snap.ReadyAt, snap.Suites, snap.Runs):
 		return skip("stale-suites")
 	case !settled(cfg.Settle, snap.Now, snap.Suites):
 		return skip("settling")
@@ -160,17 +160,36 @@ func suiteHasRuns(id int64, runs []CheckRun) bool {
 	return false
 }
 
-func currentSuites(readyAt time.Time, suites []CheckSuite) bool {
+func currentSuites(readyAt time.Time, suites []CheckSuite, runs []CheckRun) bool {
 	if readyAt.IsZero() {
 		return true
 	}
-	var newest time.Time
-	for _, suite := range suites {
-		if suite.CreatedAt.After(newest) {
-			newest = suite.CreatedAt
+	kept := latestRuns(runs)
+	if len(kept) == 0 {
+		// Preserve the opt-in no-checks delay: without any runs, use a
+		// post-ready suite as a clock, not as evidence of a successful check.
+		for _, suite := range suites {
+			if !suite.CreatedAt.Before(readyAt) && !suite.CreatedAt.IsZero() {
+				return true
+			}
+		}
+		return false
+	}
+	// Every selected check must belong to a suite created after readiness.
+	// An unrelated new check must not make older draft-run checks current.
+	for _, run := range kept {
+		current := false
+		for _, suite := range suites {
+			if suite.ID == run.SuiteID && !suite.CreatedAt.IsZero() && !suite.CreatedAt.Before(readyAt) {
+				current = true
+				break
+			}
+		}
+		if !current {
+			return false
 		}
 	}
-	return !newest.Before(readyAt)
+	return true
 }
 
 func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {

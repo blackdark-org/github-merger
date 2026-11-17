@@ -142,6 +142,59 @@ func TestDecide(t *testing.T) {
 			reason: "stale-suites",
 		},
 		{
+			name: "new empty suite is not evidence after ready",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)
+				snap.ReadyAt = now.Add(-5 * time.Minute)
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "queued", CreatedAt: now.Add(-4 * time.Minute),
+				})
+			},
+			reason: "stale-suites",
+		},
+		{
+			name: "new unrelated run cannot refresh old checks",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)
+				snap.ReadyAt = now.Add(-5 * time.Minute)
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "completed", CreatedAt: now.Add(-4 * time.Minute),
+				})
+				snap.Runs = append(snap.Runs, CheckRun{
+					ID: 10, SuiteID: 9, Name: "unrelated", Status: "completed", Conclusion: "success",
+				})
+			},
+			reason: "stale-suites",
+		},
+		{
+			name: "no checks fallback after ready",
+			mutate: func(cfg *Config, snap *Snapshot) {
+				cfg.NoChecksAfter = 10 * time.Minute
+				snap.ReadyAt = now.Add(-20 * time.Minute)
+				snap.Suites = []CheckSuite{{ID: 9, Status: "queued", CreatedAt: now.Add(-11 * time.Minute)}}
+				snap.Runs = nil
+			},
+			merge:  true,
+			method: MethodMerge,
+			reason: "ready-no-checks",
+		},
+		{
+			name: "suite with run after ready is evidence",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)
+				snap.ReadyAt = now.Add(-5 * time.Minute)
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "completed", CreatedAt: now.Add(-4 * time.Minute),
+				})
+				snap.Runs = append(snap.Runs, CheckRun{
+					ID: 10, SuiteID: 9, Name: "lint", Status: "completed", Conclusion: "success",
+				})
+			},
+			merge:  true,
+			method: MethodMerge,
+			reason: "ready",
+		},
+		{
 			name: "newest empty suite still settles",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Suites = append(snap.Suites, CheckSuite{
