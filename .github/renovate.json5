@@ -19,5 +19,10 @@
       matchUpdateTypes: ["major"],
       addLabels: ["major"],
     },
+    {
+      description: "Only github-merger merges PRs; override every inherited automerge preset",
+      matchUpdateTypes: ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
+      automerge: false,
+    },
   ],
 }

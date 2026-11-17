@@ -134,6 +134,14 @@ func TestDecide(t *testing.T) {
 			reason: "no-checks",
 		},
 		{
+			name: "draft suite predates ready for review",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)
+				snap.ReadyAt = now.Add(-30 * time.Second)
+			},
+			reason: "stale-suites",
+		},
+		{
 			name: "newest empty suite still settles",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Suites = append(snap.Suites, CheckSuite{

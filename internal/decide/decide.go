@@ -49,6 +49,7 @@ type Snapshot struct {
 	BaseName       string
 	Mergeable      *bool
 	MergeableState string
+	ReadyAt        time.Time
 	Suites         []CheckSuite
 	Runs           []CheckRun
 	StatusTotal    int
@@ -82,6 +83,8 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("no-suites")
 	case !suitesCompleted(snap.Suites, snap.Runs):
 		return skip("suites-pending")
+	case !currentSuites(snap.ReadyAt, snap.Suites):
+		return skip("stale-suites")
 	case !settled(cfg.Settle, snap.Now, snap.Suites):
 		return skip("settling")
 	}
@@ -155,6 +158,19 @@ func suiteHasRuns(id int64, runs []CheckRun) bool {
 		}
 	}
 	return false
+}
+
+func currentSuites(readyAt time.Time, suites []CheckSuite) bool {
+	if readyAt.IsZero() {
+		return true
+	}
+	var newest time.Time
+	for _, suite := range suites {
+		if suite.CreatedAt.After(newest) {
+			newest = suite.CreatedAt
+		}
+	}
+	return !newest.Before(readyAt)
 }
 
 func settled(settle time.Duration, now time.Time, suites []CheckSuite) bool {
