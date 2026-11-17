@@ -1,3 +1,11 @@
 [tools]
 go = "1.27.4"
 zizmor = "1.32.0"
+
+[tasks.check]
+description = "Format, vet, and test"
+run = ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go test -race ./..."]
+
+[tasks.zizmor]
+description = "Audit GitHub Actions workflows"
+run = "zizmor .github/workflows"
