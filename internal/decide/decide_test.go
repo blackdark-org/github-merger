@@ -142,6 +142,36 @@ func TestDecide(t *testing.T) {
 			reason: "stale-suites",
 		},
 		{
+			name: "former draft with no ready event fails closed",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.DraftAt = now.Add(-10 * time.Minute)
+			},
+			reason: "ready-unknown",
+		},
+		{
+			name: "converted back to draft after last ready event",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.ReadyAt = now.Add(-20 * time.Minute)
+				snap.DraftAt = now.Add(-10 * time.Minute)
+			},
+			reason: "ready-unknown",
+		},
+		{
+			name: "mixed pre and post readiness suites",
+			mutate: func(_ *Config, snap *Snapshot) {
+				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)
+				snap.DraftAt = now.Add(-15 * time.Minute)
+				snap.ReadyAt = now.Add(-5 * time.Minute)
+				snap.Suites = append(snap.Suites, CheckSuite{
+					ID: 9, Status: "completed", CreatedAt: now.Add(-4 * time.Minute),
+				})
+				snap.Runs = append(snap.Runs, CheckRun{
+					ID: 10, SuiteID: 9, Name: "fresh", Status: "completed", Conclusion: "success",
+				})
+			},
+			reason: "stale-suites",
+		},
+		{
 			name: "new empty suite is not evidence after ready",
 			mutate: func(_ *Config, snap *Snapshot) {
 				snap.Suites[0].CreatedAt = now.Add(-10 * time.Minute)

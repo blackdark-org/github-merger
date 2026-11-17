@@ -170,11 +170,11 @@ func (c *Client) Snapshot(ctx context.Context, owner, repo string, number int) (
 		return decide.Snapshot{}, err
 	}
 	if !snap.Draft {
-		readyAt, err := c.readyForReviewAt(ctx, owner, repo, number)
+		readyAt, draftAt, err := c.draftEvents(ctx, owner, repo, number)
 		if err != nil {
 			return decide.Snapshot{}, err
 		}
-		snap.ReadyAt = readyAt
+		snap.ReadyAt, snap.DraftAt = readyAt, draftAt
 	}
 	total, state, err := c.combinedStatus(ctx, owner, repo, snap.HeadSHA)
 	if err != nil {
@@ -258,8 +258,9 @@ func (c *Client) checkRuns(ctx context.Context, owner, repo, sha string) ([]deci
 	return runs, nil
 }
 
-func (c *Client) readyForReviewAt(ctx context.Context, owner, repo string, number int) (time.Time, error) {
-	var latest time.Time
+// draftEvents returns the latest ready_for_review and convert_to_draft times.
+func (c *Client) draftEvents(ctx context.Context, owner, repo string, number int) (time.Time, time.Time, error) {
+	var latest, draft time.Time
 	next := c.repo(owner, repo) + "/issues/" + strconv.Itoa(number) + "/events?per_page=100"
 	for next != "" {
 		var page []struct {
@@ -269,15 +270,18 @@ func (c *Client) readyForReviewAt(ctx context.Context, owner, repo string, numbe
 		var err error
 		next, err = c.get(ctx, next, &page)
 		if err != nil {
-			return time.Time{}, err
+			return time.Time{}, time.Time{}, err
 		}
 		for _, event := range page {
-			if event.Event == "ready_for_review" && event.CreatedAt.After(latest) {
+			switch {
+			case event.Event == "ready_for_review" && event.CreatedAt.After(latest):
 				latest = event.CreatedAt
+			case event.Event == "convert_to_draft" && event.CreatedAt.After(draft):
+				draft = event.CreatedAt
 			}
 		}
 	}
-	return latest, nil
+	return latest, draft, nil
 }
 
 func (c *Client) combinedStatus(ctx context.Context, owner, repo, sha string) (int, string, error) {

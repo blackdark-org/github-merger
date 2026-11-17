@@ -50,6 +50,7 @@ type Snapshot struct {
 	Mergeable      *bool
 	MergeableState string
 	ReadyAt        time.Time
+	DraftAt        time.Time // latest convert_to_draft event
 	Suites         []CheckSuite
 	Runs           []CheckRun
 	StatusTotal    int
@@ -83,6 +84,9 @@ func Decide(cfg Config, snap Snapshot) Decision {
 		return skip("no-suites")
 	case !suitesCompleted(snap.Suites, snap.Runs):
 		return skip("suites-pending")
+	case !snap.DraftAt.IsZero() && !snap.ReadyAt.After(snap.DraftAt):
+		// Draft history without a later visible ready_for_review event: fail closed.
+		return skip("ready-unknown")
 	case !currentSuites(snap.ReadyAt, snap.Suites, snap.Runs):
 		return skip("stale-suites")
 	case !settled(cfg.Settle, snap.Now, snap.Suites):
