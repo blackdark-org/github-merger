@@ -6,7 +6,7 @@
   ],
   postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
   separateMultipleMajor: true,
-  // github-merger lands labelled PRs after their checks; do not enable two merge drivers.
+  // github-merger is the only merge driver.
   automerge: false,
   platformAutomerge: false,
   packageRules: [
